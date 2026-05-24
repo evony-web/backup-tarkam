@@ -1,6 +1,7 @@
-// ─── Database Client — Dual Environment ───
-// Production (Vercel): Neon PostgreSQL via standard PrismaClient
-// Local development: SQLite via standard PrismaClient
+// ─── Database Client — Triple Environment ───
+// Production (Vercel): Turso libSQL via Prisma driver adapter
+// Legacy Production:   Neon PostgreSQL via standard PrismaClient
+// Local development:   SQLite via standard PrismaClient
 //
 // NOTE: Lazy initialization is required because Turbopack may evaluate
 // this module before .env is loaded. By deferring PrismaClient creation
@@ -13,37 +14,55 @@ import { resolve } from 'path'
 dotenvConfig({ path: resolve(process.cwd(), '.env'), override: true })
 
 import { PrismaClient } from '@prisma/client'
+import { PrismaLibSql } from '@prisma/adapter-libsql'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-function _isPostgresUrl(): boolean {
-  return (process.env.DATABASE_URL || '').startsWith('postgres')
+function _getDbType(): 'postgres' | 'libsql' | 'sqlite' {
+  const url = process.env.DATABASE_URL || ''
+  if (url.startsWith('postgres')) return 'postgres'
+  if (url.startsWith('libsql://') || url.startsWith('http://') || url.startsWith('https://')) return 'libsql'
+  return 'sqlite'
 }
 
 function createPrismaClient(): PrismaClient {
   const dbUrl = process.env.DATABASE_URL
+  const dbType = _getDbType()
 
   if (!dbUrl) {
     console.error('[DB] ❌ DATABASE_URL is not set! Database connection will fail.')
     console.error('[DB] Set DATABASE_URL in .env (local) or Vercel Environment Variables (production)')
   }
 
-  if (_isPostgresUrl()) {
-    // ── Production: Neon PostgreSQL ──
-    // Standard PrismaClient works with Neon using the pooled connection URL.
-    // For Prisma migrations/schema push, use DIRECT_URL (non-pooled).
-    console.log('[DB] Using Neon PostgreSQL —', dbUrl?.substring(0, 30) + '...')
-    return new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+  const logLevel = process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']
+
+  if (dbType === 'libsql') {
+    // ── Production: Turso libSQL via driver adapter ──
+    console.log('[DB] Using Turso libSQL —', dbUrl?.substring(0, 40) + '...')
+
+    // Use @libsql/client for Turso connection
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createClient } = require('@libsql/client') as typeof import('@libsql/client')
+    const libsql = createClient({
+      url: dbUrl!,
+      authToken: process.env.TURSO_AUTH_TOKEN,
     })
+    const adapter = new PrismaLibSql(libsql)
+    return new PrismaClient({ adapter, log: logLevel }) as PrismaClient
+  }
+
+  if (dbType === 'postgres') {
+    // ── Legacy Production: Neon PostgreSQL ──
+    console.log('[DB] Using Neon PostgreSQL —', dbUrl?.substring(0, 30) + '...')
+    return new PrismaClient({ log: logLevel })
   }
 
   // ── Local development: SQLite ──
   console.log('[DB] Using SQLite —', dbUrl || '(no URL)')
   return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+    log: logLevel,
     datasources: {
       db: {
         url: dbUrl,
@@ -73,20 +92,22 @@ export const db = new Proxy({} as PrismaClient, {
 })
 
 /** Export provider info so other modules can adapt behavior */
-export const isSQLite = !_isPostgresUrl()
-export const isPostgreSQL = _isPostgresUrl()
+const _dbType = _getDbType()
+export const isSQLite = _dbType === 'sqlite'
+export const isPostgreSQL = _dbType === 'postgres'
+export const isTurso = _dbType === 'libsql'
 
 // ═══════════════════════════════════════════════════════════
 // POSTGRESQL COMPATIBILITY HELPERS
 // ═══════════════════════════════════════════════════════════
 // When running on PostgreSQL (Neon), certain Prisma operations
-// need raw SQL workarounds. On SQLite, standard Prisma is used.
+// need raw SQL workarounds. On SQLite/Turso, standard Prisma is used.
 // ═══════════════════════════════════════════════════════════
 
 /**
  * PostgreSQL-compatible replacement for Prisma's updateMany().
  * When running on PostgreSQL, uses raw SQL instead.
- * When running on SQLite, falls back to normal Prisma updateMany.
+ * When running on SQLite/Turso, falls back to normal Prisma updateMany.
  *
  * @param table - Prisma model name (e.g. 'Participation', 'Player')
  * @param whereClauses - Array of { column, operator, value } conditions
@@ -98,8 +119,8 @@ export async function neonUpdateMany(
   whereClauses: Array<{ column: string; operator: '=' | 'IN' | 'NOT NULL' | 'IS NULL'; value?: string | string[] }>,
   data: Record<string, unknown>
 ): Promise<number> {
-  if (!_isPostgresUrl()) {
-    throw new Error('neonUpdateMany should only be called for PostgreSQL. Use db.model.updateMany for SQLite.');
+  if (_dbType !== 'postgres') {
+    throw new Error('neonUpdateMany should only be called for PostgreSQL. Use db.model.updateMany for SQLite/Turso.');
   }
 
   // Build SET clause
@@ -149,7 +170,7 @@ export async function neonUpdateMany(
 /**
  * PostgreSQL-compatible replacement for Prisma's deleteMany().
  * When running on PostgreSQL, uses raw SQL instead.
- * When running on SQLite, falls back to normal Prisma deleteMany.
+ * When running on SQLite/Turso, falls back to normal Prisma deleteMany.
  *
  * IMPORTANT: When called inside a neonTransaction(), pass the transaction client (tx)
  * as the 3rd argument so the delete runs WITHIN the transaction.
@@ -165,8 +186,8 @@ export async function neonDeleteMany(
   whereClauses: Array<{ column: string; operator: '=' | 'IN' | 'NOT NULL' | 'IS NULL'; value?: string | string[] }>,
   tx?: PrismaClient
 ): Promise<number> {
-  if (!_isPostgresUrl()) {
-    throw new Error('neonDeleteMany should only be called for PostgreSQL. Use db.model.deleteMany for SQLite.');
+  if (_dbType !== 'postgres') {
+    throw new Error('neonDeleteMany should only be called for PostgreSQL. Use db.model.deleteMany for SQLite/Turso.');
   }
 
   const params: unknown[] = [];
@@ -196,7 +217,7 @@ export async function neonDeleteMany(
 /**
  * PostgreSQL-compatible replacement for Prisma's createMany().
  * When running on PostgreSQL, creates rows one by one sequentially.
- * When running on SQLite, falls back to normal Prisma createMany.
+ * When running on SQLite/Turso, falls back to normal Prisma createMany.
  *
  * @param model - Prisma model delegate (e.g. db.teamPlayer)
  * @param data - Array of data objects to create
@@ -206,8 +227,8 @@ export async function neonCreateMany<T>(
   model: { create: (args: { data: T }) => Promise<unknown> },
   data: T[]
 ): Promise<number> {
-  if (!_isPostgresUrl()) {
-    throw new Error('neonCreateMany should only be called for PostgreSQL. Use db.model.createMany for SQLite.');
+  if (_dbType !== 'postgres') {
+    throw new Error('neonCreateMany should only be called for PostgreSQL. Use db.model.createMany for SQLite/Turso.');
   }
 
   let count = 0;
@@ -222,12 +243,12 @@ export async function neonCreateMany<T>(
  * PostgreSQL-compatible replacement for Prisma's $transaction().
  * For PostgreSQL (Neon): uses extended timeout (30s) to prevent
  * "Transaction not found" errors on serverless with many sequential queries.
- * For SQLite: uses default timeout.
+ * For SQLite/Turso: uses default timeout.
  */
 export async function neonTransaction<T>(
   fn: (tx: PrismaClient) => Promise<T>
 ): Promise<T> {
-  if (!_isPostgresUrl()) {
+  if (_dbType !== 'postgres') {
     return db.$transaction(fn as never) as Promise<T>;
   }
   // PostgreSQL (Neon): use extended timeout to prevent transaction expiry

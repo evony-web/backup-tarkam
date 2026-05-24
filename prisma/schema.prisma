@@ -1,9 +1,11 @@
-// Local development schema (SQLite)
-// This file is used for local development only.
-// Production uses schema.prisma with PostgreSQL.
+// TARKAM IDM - Universal Schema (SQLite / Turso libSQL / PostgreSQL)
+// Local dev:  SQLite (file:...)
+// Production:  Turso libSQL (libsql://...) via driver adapter
+// Legacy:     PostgreSQL (postgres://...) via standard PrismaClient
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
