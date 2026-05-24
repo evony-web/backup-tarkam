@@ -1,5 +1,8 @@
 // ─── Database Client — Triple Environment ───
 // Production (Vercel): Turso libSQL via Prisma driver adapter
+//   - DATABASE_URL must be a valid SQLite URL for Prisma schema validation (e.g. file:./dev.db)
+//   - TURSO_DATABASE_URL is the actual libsql:// connection URL used by the adapter
+//   - TURSO_AUTH_TOKEN is the auth token for Turso
 // Legacy Production:   Neon PostgreSQL via standard PrismaClient
 // Local development:   SQLite via standard PrismaClient
 //
@@ -20,10 +23,40 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
+/**
+ * Detect the database type based on environment variables.
+ *
+ * CRITICAL: On Vercel production, DATABASE_URL must be a valid SQLite URL
+ * (e.g. file:./dev.db) for Prisma schema validation. The ACTUAL Turso
+ * connection is made via TURSO_DATABASE_URL + the driver adapter.
+ *
+ * Detection logic:
+ * 1. If DATABASE_URL starts with postgres:// → PostgreSQL (legacy)
+ * 2. If DATABASE_URL starts with libsql:// → Turso (legacy, not recommended)
+ * 3. If USE_TURSO=true AND TURSO_DATABASE_URL is set → Turso (recommended for Vercel)
+ * 4. Otherwise → local SQLite
+ */
 function _getDbType(): 'postgres' | 'libsql' | 'sqlite' {
-  const url = process.env.DATABASE_URL || ''
-  if (url.startsWith('postgres')) return 'postgres'
-  if (url.startsWith('libsql://') || url.startsWith('http://') || url.startsWith('https://')) return 'libsql'
+  const dbUrl = process.env.DATABASE_URL || ''
+
+  // Check if DATABASE_URL itself is a postgres URL
+  if (dbUrl.startsWith('postgres')) return 'postgres'
+
+  // Check if DATABASE_URL itself is a libsql URL (legacy fallback)
+  if (dbUrl.startsWith('libsql://') || dbUrl.startsWith('http://') || dbUrl.startsWith('https://')) {
+    return 'libsql'
+  }
+
+  // Check explicit USE_TURSO flag (recommended for Vercel)
+  // This keeps local dev using SQLite even when TURSO_DATABASE_URL exists in .env
+  if (process.env.USE_TURSO === 'true') {
+    const tursoUrl = process.env.TURSO_DATABASE_URL || ''
+    if (tursoUrl.startsWith('libsql://') || tursoUrl.startsWith('http://') || tursoUrl.startsWith('https://')) {
+      return 'libsql'
+    }
+  }
+
+  // Default: local SQLite
   return 'sqlite'
 }
 
@@ -40,13 +73,16 @@ function createPrismaClient(): PrismaClient {
 
   if (dbType === 'libsql') {
     // ── Production: Turso libSQL via driver adapter ──
-    console.log('[DB] Using Turso libSQL —', dbUrl?.substring(0, 40) + '...')
+    // The actual connection URL comes from TURSO_DATABASE_URL
+    // DATABASE_URL must be a valid SQLite URL for Prisma schema validation
+    const tursoUrl = process.env.TURSO_DATABASE_URL || dbUrl || ''
+    console.log('[DB] Using Turso libSQL —', tursoUrl?.substring(0, 40) + '...')
 
     // Use @libsql/client for Turso connection
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createClient } = require('@libsql/client') as typeof import('@libsql/client')
     const libsql = createClient({
-      url: dbUrl!,
+      url: tursoUrl,
       authToken: process.env.TURSO_AUTH_TOKEN,
     })
     const adapter = new PrismaLibSql(libsql)
