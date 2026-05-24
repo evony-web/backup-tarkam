@@ -85,14 +85,12 @@ function createPrismaClient(): PrismaClient {
       process.env.DATABASE_URL = 'file:./dev.db'
     }
 
-    // Use @libsql/client for Turso connection
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createClient } = require('@libsql/client') as typeof import('@libsql/client')
-    const libsql = createClient({
+    // PrismaLibSql@7.x accepts a config object { url, authToken } directly.
+    // It creates the @libsql/client internally via createClient(config).
+    const adapter = new PrismaLibSql({
       url: tursoUrl,
       authToken: process.env.TURSO_AUTH_TOKEN,
     })
-    const adapter = new PrismaLibSql(libsql)
     return new PrismaClient({ adapter, log: logLevel }) as PrismaClient
   }
 
