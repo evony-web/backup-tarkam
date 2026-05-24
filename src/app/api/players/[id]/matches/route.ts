@@ -70,31 +70,52 @@ export async function GET(
     }> = [];
 
     if (teamIds.length > 0) {
+      // Only include matches from tournaments that are in main_event or later status.
+      // Tournaments in earlier statuses (e.g. bracket_generation after rollback)
+      // should NOT show in player match history — those matches haven't been played yet.
+      const activeTournamentStatuses = ['main_event', 'finalization', 'completed'];
+
+      // Only show completed or live matches in history.
+      // Pending/ready matches from rolled-back tournaments should not appear.
+      const matchStatusFilter = { in: ['completed', 'live'] };
+
       // Get matches where any of the player's teams are team1 or team2
       const matchesAsTeam1 = await db.match.findMany({
-        where: { team1Id: { in: teamIds } },
+        where: {
+          team1Id: { in: teamIds },
+          status: matchStatusFilter,
+          tournament: { status: { in: activeTournamentStatuses } },
+        },
         include: {
           team1: { select: { id: true, name: true } },
           team2: { select: { id: true, name: true } },
           mvpPlayer: { select: { id: true, gamertag: true } },
           tournament: { select: { name: true, weekNumber: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { completedAt: 'desc' },
       });
 
       const matchesAsTeam2 = await db.match.findMany({
-        where: { team2Id: { in: teamIds } },
+        where: {
+          team2Id: { in: teamIds },
+          status: matchStatusFilter,
+          tournament: { status: { in: activeTournamentStatuses } },
+        },
         include: {
           team1: { select: { id: true, name: true } },
           team2: { select: { id: true, name: true } },
           mvpPlayer: { select: { id: true, gamertag: true } },
           tournament: { select: { name: true, weekNumber: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { completedAt: 'desc' },
       });
 
       const allMatches = [...matchesAsTeam1, ...matchesAsTeam2].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        (a, b) => {
+          const dateA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+          const dateB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+          return dateB - dateA;
+        }
       );
 
       // Deduplicate

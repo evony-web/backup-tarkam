@@ -10,10 +10,14 @@ export async function GET(request: Request) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '5'), 20);
 
     // Get recent completed matches with team/player info
+    // Only show matches from tournaments in main_event or later status
+    // (excludes rolled-back tournaments that are back to bracket_generation, etc.)
+    const activeTournamentStatuses = ['main_event', 'finalization', 'completed'];
+
     const matches = await db.match.findMany({
       where: {
         status: 'completed',
-        tournament: { division: divisionFilter },
+        tournament: { division: divisionFilter, status: { in: activeTournamentStatuses } },
         ...(bracketFilter ? { bracket: bracketFilter } : {}),
       },
       orderBy: { completedAt: 'desc' },

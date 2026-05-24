@@ -33,8 +33,9 @@ export async function GET() {
     }),
 
     // Latest completed matches (Tarkam: tournament matches)
+    // Only show matches from tournaments in main_event or later status
     db.match.findMany({
-      where: { status: 'completed', score1: { not: null }, score2: { not: null } },
+      where: { status: 'completed', score1: { not: null }, score2: { not: null }, tournament: { status: { in: ['main_event', 'finalization', 'completed'] } } },
       orderBy: { completedAt: 'desc' },
       take: 8,
       include: { team1: true, team2: true, mvpPlayer: true, tournament: { select: { weekNumber: true, division: true } } },
@@ -52,7 +53,7 @@ export async function GET() {
 
     // Recent MVPs
     db.match.findMany({
-      where: { mvpPlayerId: { not: null }, status: 'completed' },
+      where: { mvpPlayerId: { not: null }, status: 'completed', tournament: { status: { in: ['main_event', 'finalization', 'completed'] } } },
       orderBy: { completedAt: 'desc' },
       take: 5,
       include: { mvpPlayer: true, tournament: true },

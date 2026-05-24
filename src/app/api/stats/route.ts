@@ -78,6 +78,7 @@ export async function GET(request: Request) {
   // Priority 1: Find a non-completed tournament in either season
   // Priority 2: Find the latest tournament in either season (any status)
   // This reduces from 3 sequential queries to at most 2.
+  // Optimization: Only include the nested data we actually need (reduced from 4-level deep)
   const activeTournament = await (async () => {
     // 1. Non-completed tournament across both seasons (most important)
     const activeNonCompleted = await db.tournament.findFirst({
@@ -87,10 +88,10 @@ export async function GET(request: Request) {
       },
       orderBy: { weekNumber: 'desc' },
       include: {
-        teams: { include: { teamPlayers: { include: { player: true } } } },
-        matches: { include: { team1: true, team2: true, mvpPlayer: true } },
-        participations: { include: { player: true } },
-        donations: true,
+        teams: { include: { teamPlayers: { include: { player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } } } },
+        matches: { select: { id: true, round: true, matchNumber: true, bracket: true, status: true, score1: true, score2: true, format: true, team1Id: true, team2Id: true, winnerId: true, loserId: true, mvpPlayerId: true, team1: { select: { id: true, name: true } }, team2: { select: { id: true, name: true } }, mvpPlayer: { select: { id: true, gamertag: true, avatar: true } } } },
+        participations: { select: { id: true, playerId: true, status: true, isMvp: true, isWinner: true, player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } },
+        donations: { select: { id: true, donorName: true, amount: true, status: true } },
       },
     });
     if (activeNonCompleted) return activeNonCompleted;
@@ -100,10 +101,10 @@ export async function GET(request: Request) {
       where: { seasonId: { in: [activeSeasonId, clubSeasonId] } },
       orderBy: { weekNumber: 'desc' },
       include: {
-        teams: { include: { teamPlayers: { include: { player: true } } } },
-        matches: { include: { team1: true, team2: true, mvpPlayer: true } },
-        participations: { include: { player: true } },
-        donations: true,
+        teams: { include: { teamPlayers: { include: { player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } } } },
+        matches: { select: { id: true, round: true, matchNumber: true, bracket: true, status: true, score1: true, score2: true, format: true, team1Id: true, team2Id: true, winnerId: true, loserId: true, mvpPlayerId: true, team1: { select: { id: true, name: true } }, team2: { select: { id: true, name: true } }, mvpPlayer: { select: { id: true, gamertag: true, avatar: true } } } },
+        participations: { select: { id: true, playerId: true, status: true, isMvp: true, isWinner: true, player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } },
+        donations: { select: { id: true, donorName: true, amount: true, status: true } },
       },
     });
   })();
@@ -198,8 +199,10 @@ export async function GET(request: Request) {
     }),
 
     // Recent matches (Tarkam: use tournament matches)
+    // Only show matches from tournaments in main_event or later status
+    // AND only for the requested division (avoids scanning the other division's matches)
     db.match.findMany({
-      where: { status: 'completed' },
+      where: { status: 'completed', tournament: { status: { in: ['main_event', 'finalization', 'completed'] }, division: divisionFilter } },
       orderBy: { completedAt: 'desc' },
       take: 3,
       include: { team1: true, team2: true, mvpPlayer: true },
@@ -262,6 +265,7 @@ export async function GET(request: Request) {
 
     // ★ Cross-division players for Sultan of the Week donor matching (moved into Promise.all)
     // Sultan donor can be from ANY division, so we must search both male & female players
+    // Optimized: only load fields needed for donor matching (no stats fields)
     db.player.findMany({
       where: { isActive: true, registrationStatus: 'approved' },
       select: {
@@ -270,12 +274,7 @@ export async function GET(request: Request) {
         gamertag: true,
         avatar: true,
         tier: true,
-        points: true,
-        totalWins: true,
-        totalMvp: true,
-        streak: true,
         division: true,
-        city: true,
         clubMembers: {
           where: { leftAt: null },
           include: { profile: { select: { id: true, name: true, logo: true } } },
@@ -726,8 +725,9 @@ export async function GET(request: Request) {
   let weeklyTopPerformers: any[] = [];
 
   // Find the latest tournament for the active season (completed or in-progress)
+  // Only consider tournaments in main_event or later status (exclude rolled-back)
   const latestTournament = [...tournaments]
-    .filter(t => t.seasonId === activeSeasonId)
+    .filter(t => t.seasonId === activeSeasonId && ['main_event', 'finalization', 'completed'].includes(t.status))
     .sort((a, b) => b.weekNumber - a.weekNumber)[0];
 
   if (latestTournament) {

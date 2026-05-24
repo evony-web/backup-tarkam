@@ -64,9 +64,11 @@ export async function POST(request: Request) {
 
       // Find all completed matches where the player's team participated
       // We need matches ordered chronologically to calculate streak correctly
+      // Only count matches from tournaments in main_event or later status
       const matches = await db.match.findMany({
         where: {
           status: 'completed',
+          tournament: { status: { in: ['main_event', 'finalization', 'completed'] } },
           OR: [
             { team1Id: { in: playerTeamIds } },
             { team2Id: { in: playerTeamIds } },

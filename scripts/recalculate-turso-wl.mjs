@@ -22,8 +22,15 @@ async function main() {
   console.log('🔄 Recalculating Player W/L from match data in Turso');
   console.log('═'.repeat(60));
 
-  // 1. Get all completed matches
-  const matches = await turso.execute(`SELECT id, team1Id, team2Id, winnerId, status FROM "Match" WHERE status = 'completed'`);
+  // 1. Get all completed matches from tournaments in main_event or later status
+  // (excludes rolled-back tournaments that are back to bracket_generation, etc.)
+  const matches = await turso.execute(`
+    SELECT m.id, m.team1Id, m.team2Id, m.winnerId, m.status
+    FROM "Match" m
+    JOIN "Tournament" t ON m.tournamentId = t.id
+    WHERE m.status = 'completed'
+      AND t.status IN ('main_event', 'finalization', 'completed')
+  `);
   console.log(`Completed matches: ${matches.rows.length}`);
 
   // 2. Get all team-player mappings

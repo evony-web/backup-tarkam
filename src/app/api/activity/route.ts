@@ -43,8 +43,9 @@ export async function GET() {
     }),
 
     // Recent completed matches (tournament bracket matches)
+    // Only show matches from tournaments in main_event or later status
     db.match.findMany({
-      where: { status: 'completed' },
+      where: { status: 'completed', tournament: { status: { in: ['main_event', 'finalization', 'completed'] } } },
       orderBy: { completedAt: 'desc' },
       take: 10,
       include: {

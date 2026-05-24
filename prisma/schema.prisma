@@ -57,6 +57,7 @@ model Player {
 
   @@index([division])
   @@index([division, isActive])
+  @@index([division, isActive, registrationStatus])
   @@index([points])
 }
 
@@ -209,6 +210,8 @@ model Match {
   @@index([tournamentId])
   @@index([status])
   @@index([tournamentId, bracket, round])
+  @@index([status, completedAt])
+  @@index([tournamentId, status])
 }
 
 model Participation {
@@ -253,6 +256,7 @@ model Donation {
   @@index([status])
   @@index([division])
   @@index([playerId])
+  @@index([status, division])
 }
 
 // ============================================
@@ -385,6 +389,7 @@ model Club {
   @@index([seasonId])
   @@index([division])
   @@index([profileId])
+  @@index([seasonId, division])
 }
 
 model ClubMember {

@@ -54,10 +54,15 @@ export async function GET(request: NextRequest) {
     const tournamentIds = tournaments.map(t => t.id);
 
     // Get all completed matches for these tournaments
-    const matches = tournamentIds.length > 0
+    // Only include matches from tournaments in main_event or later status
+    const activeTournamentIds = tournaments
+      .filter(t => ['main_event', 'finalization', 'completed'].includes(t.status))
+      .map(t => t.id);
+
+    const matches = activeTournamentIds.length > 0
       ? await db.match.findMany({
           where: {
-            tournamentId: { in: tournamentIds },
+            tournamentId: { in: activeTournamentIds },
             status: 'completed',
           },
           include: {

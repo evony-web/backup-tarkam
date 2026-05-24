@@ -1240,6 +1240,86 @@ export async function PUT(
       if (revertErrors.length > 0) {
         console.warn('Revert completed with errors:', revertErrors);
       }
+
+      // ─── POST-ROLLBACK: Recalculate denormalized player stats ───
+      // After all rollback phases, recalculate totalWins, matches, and totalMvp
+      // for all players who had teams in this tournament. This ensures denormalized
+      // counters stay in sync with actual match records, even if rollback phases
+      // failed to perfectly adjust every counter.
+      if (targetIdx < statusOrder.indexOf('main_event')) {
+        try {
+          console.log('[Rollback] Recalculating player stats for affected players...');
+          const tournamentTeams = await db.team.findMany({
+            where: { tournamentId: id },
+            select: { id: true, teamPlayers: { select: { playerId: true } } },
+          });
+          const affectedPlayerIds = new Set<string>();
+          for (const team of tournamentTeams) {
+            for (const tp of team.teamPlayers) {
+              affectedPlayerIds.add(tp.playerId);
+            }
+          }
+
+          // Only count completed matches from tournaments in main_event or later status
+          for (const playerId of affectedPlayerIds) {
+            // Find all teams the player has been on
+            const playerTeamPlayers = await db.teamPlayer.findMany({
+              where: { playerId },
+              select: { teamId: true },
+            });
+            const playerTeamIds = playerTeamPlayers.map(tp => tp.teamId);
+
+            if (playerTeamIds.length === 0) {
+              // Player has no teams — reset counters
+              await db.player.update({
+                where: { id: playerId },
+                data: { totalWins: 0, matches: 0 },
+              });
+              continue;
+            }
+
+            // Count actual completed matches from active tournaments
+            const actualCompleted = await db.match.findMany({
+              where: {
+                status: 'completed',
+                tournament: { status: { in: ['main_event', 'finalization', 'completed'] } },
+                OR: [
+                  { team1Id: { in: playerTeamIds } },
+                  { team2Id: { in: playerTeamIds } },
+                ],
+              },
+              select: {
+                winnerId: true,
+                team1Id: true,
+                team2Id: true,
+              },
+            });
+
+            let actualWins = 0;
+            let actualMatches = 0;
+            for (const m of actualCompleted) {
+              const isTeam1 = playerTeamIds.includes(m.team1Id ?? '');
+              const isTeam2 = playerTeamIds.includes(m.team2Id ?? '');
+              if (!isTeam1 && !isTeam2) continue;
+              if (!m.team1Id || !m.team2Id) continue; // Skip BYE
+              actualMatches++;
+              if (m.winnerId && playerTeamIds.includes(m.winnerId)) {
+                actualWins++;
+              }
+            }
+
+            await db.player.update({
+              where: { id: playerId },
+              data: { totalWins: actualWins, matches: actualMatches },
+            });
+          }
+          console.log(`[Rollback] Recalculated stats for ${affectedPlayerIds.size} players`);
+        } catch (recalcError) {
+          console.error('[Rollback] Post-rollback stats recalculation error:', recalcError);
+          revertErrors.push(recalcError instanceof Error ? recalcError.message : 'Unknown recalc error');
+        }
+      }
+
       } // closes if (targetIdx < currentIdx)
     } // closes if (currentTournament)
     body._reverted = true; // Flag for final consistency check before status commit

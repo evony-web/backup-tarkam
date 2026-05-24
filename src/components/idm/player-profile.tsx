@@ -263,13 +263,15 @@ export function PlayerProfile({ player, onClose, rank, skinMap, preferredSkinTyp
   });
 
   // Fetch player match history
+  // Always enabled (even if denormalized matches counter is 0) because
+  // after a tournament rollback, counters may be out of sync
   const { data: matchHistoryData } = useQuery({
     queryKey: ['player-matches', player.id],
     queryFn: async () => {
       const res = await fetch(`/api/players/${player.id}/matches`);
       return res.json();
     },
-    enabled: !!player.id && matches > 0,
+    enabled: !!player.id,
     staleTime: 30000,
   });
 

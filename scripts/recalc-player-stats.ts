@@ -32,10 +32,13 @@ async function main() {
   }
 
   // 3. Get all completed matches with winner/loser info
+  // Only count matches from tournaments that are in main_event or later status
+  // (excludes rolled-back tournaments that are back to bracket_generation, etc.)
   const matches = await db.match.findMany({
     where: { 
       status: 'completed',
       team2Id: { not: null }, // Exclude BYE matches
+      tournament: { status: { in: ['main_event', 'finalization', 'completed'] } },
     },
     select: {
       id: true,
