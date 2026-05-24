@@ -91,7 +91,7 @@ export async function GET(request: Request) {
         teams: { include: { teamPlayers: { include: { player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } } } },
         matches: { select: { id: true, round: true, matchNumber: true, bracket: true, status: true, score1: true, score2: true, format: true, team1Id: true, team2Id: true, winnerId: true, loserId: true, mvpPlayerId: true, team1: { select: { id: true, name: true } }, team2: { select: { id: true, name: true } }, mvpPlayer: { select: { id: true, gamertag: true, avatar: true } } } },
         participations: { select: { id: true, playerId: true, status: true, isMvp: true, isWinner: true, player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } },
-        donations: { select: { id: true, donorName: true, amount: true, status: true } },
+        donations: { select: { id: true, donorName: true, amount: true, status: true, createdAt: true } },
       },
     });
     if (activeNonCompleted) return activeNonCompleted;
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
         teams: { include: { teamPlayers: { include: { player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } } } },
         matches: { select: { id: true, round: true, matchNumber: true, bracket: true, status: true, score1: true, score2: true, format: true, team1Id: true, team2Id: true, winnerId: true, loserId: true, mvpPlayerId: true, team1: { select: { id: true, name: true } }, team2: { select: { id: true, name: true } }, mvpPlayer: { select: { id: true, gamertag: true, avatar: true } } } },
         participations: { select: { id: true, playerId: true, status: true, isMvp: true, isWinner: true, player: { select: { id: true, gamertag: true, name: true, avatar: true, tier: true, division: true } } } },
-        donations: { select: { id: true, donorName: true, amount: true, status: true } },
+        donations: { select: { id: true, donorName: true, amount: true, status: true, createdAt: true } },
       },
     });
   })();
