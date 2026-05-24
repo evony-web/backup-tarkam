@@ -1,0 +1,27 @@
+{
+  "name": "TARKAM IDM — Idol Meta",
+  "short_name": "TARKAM IDM",
+  "description": "Komunitas Tarkam IDM — kompetisi dance, klasemen, turnamen mingguan, dan lebih banyak! Idol Meta Fan Made Edition.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080a14",
+  "theme_color": "#d4a853",
+  "categories": ["sports", "entertainment", "games"],
+  "icons": [
+    {
+      "src": "/logo1.webp",
+      "sizes": "1024x1024",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

@@ -1,0 +1,40 @@
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+export function middleware(request: NextRequest) {
+  const response = NextResponse.next();
+
+  // Content Security Policy — allows unsafe-eval for Framer Motion animations
+  // and unsafe-inline for styled-jsx / Tailwind CSS runtime
+  const cspHeader = `
+    default-src 'self';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    img-src 'self' data: blob: https://res.cloudinary.com https://*.cloudinary.com;
+    font-src 'self' https://fonts.gstatic.com;
+    connect-src 'self' https://res.cloudinary.com https://*.cloudinary.com https://*.pusher.com wss://*.pusher.com;
+    media-src 'self' https://res.cloudinary.com https://*.cloudinary.com blob:;
+    frame-src 'none';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+  `.replace(/\n/g, '').replace(/\s{2,}/g, ' ').trim();
+
+  response.headers.set('Content-Security-Policy', cspHeader);
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  return response;
+}
+
+export const config = {
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico, logo, etc.
+     */
+    '/((?!_next/static|_next/image|favicon\\.ico|logo.*\\.webp|bg.*\\.jpg|bg.*\\.webp).*)',
+  ],
+};
