@@ -126,7 +126,7 @@ function SultanOfWeeklyCard({
   const primaryColors = DIVISION_COLORS[primaryDivision];
 
   return (
-    <AnimatedSection variant="premium" className="mb-6">
+    <AnimatedSection variant="fadeUp" className="mb-6">
       <div
         className="relative overflow-hidden rounded-2xl backdrop-blur-md bg-white/[0.04] dark:bg-white/[0.06] border shadow-[0_4px_30px_rgba(0,0,0,0.1)]"
         style={{
