@@ -78,6 +78,13 @@ function createPrismaClient(): PrismaClient {
     const tursoUrl = process.env.TURSO_DATABASE_URL || dbUrl || ''
     console.log('[DB] Using Turso libSQL —', tursoUrl?.substring(0, 40) + '...')
 
+    // When using driver adapters, Prisma doesn't use DATABASE_URL for connections,
+    // but the PrismaClient constructor may still validate the URL format.
+    // Override it to a valid SQLite path to prevent validation errors.
+    if (dbUrl && (dbUrl.startsWith('libsql://') || dbUrl.startsWith('http://') || dbUrl.startsWith('https://'))) {
+      process.env.DATABASE_URL = 'file:./dev.db'
+    }
+
     // Use @libsql/client for Turso connection
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createClient } = require('@libsql/client') as typeof import('@libsql/client')
