@@ -1242,13 +1242,15 @@ export async function PUT(
       }
 
       // ─── POST-ROLLBACK: Recalculate denormalized player stats ───
-      // After all rollback phases, recalculate totalWins, matches, and totalMvp
-      // for all players who had teams in this tournament. This ensures denormalized
-      // counters stay in sync with actual match records, even if rollback phases
+      // After all rollback phases, recalculate totalWins, matches, points, streak
+      // for all players affected by this tournament. This ensures denormalized
+      // counters stay in sync with actual data, even if rollback phases
       // failed to perfectly adjust every counter.
-      if (targetIdx < statusOrder.indexOf('main_event')) {
+      // Runs when rolling back before finalization (covers main_event, bracket_generation, etc.)
+      if (targetIdx < statusOrder.indexOf('finalization')) {
         try {
           console.log('[Rollback] Recalculating player stats for affected players...');
+          // Collect affected player IDs from teams AND participations
           const tournamentTeams = await db.team.findMany({
             where: { tournamentId: id },
             select: { id: true, teamPlayers: { select: { playerId: true } } },
@@ -1259,9 +1261,24 @@ export async function PUT(
               affectedPlayerIds.add(tp.playerId);
             }
           }
+          // Also include players from participations (may not be in teams after rollback)
+          const participations = await db.participation.findMany({
+            where: { tournamentId: id },
+            select: { playerId: true },
+          });
+          for (const p of participations) {
+            affectedPlayerIds.add(p.playerId);
+          }
 
-          // Only count completed matches from tournaments in main_event or later status
           for (const playerId of affectedPlayerIds) {
+            // ── Recalculate points from PlayerPoint audit trail ──
+            const pointResult = await db.playerPoint.aggregate({
+              where: { playerId },
+              _sum: { amount: true },
+            });
+            const correctPoints = pointResult._sum.amount || 0;
+
+            // ── Recalculate totalWins and matches from actual match data ──
             // Find all teams the player has been on
             const playerTeamPlayers = await db.teamPlayer.findMany({
               where: { playerId },
@@ -1269,48 +1286,59 @@ export async function PUT(
             });
             const playerTeamIds = playerTeamPlayers.map(tp => tp.teamId);
 
-            if (playerTeamIds.length === 0) {
-              // Player has no teams — reset counters
-              await db.player.update({
-                where: { id: playerId },
-                data: { totalWins: 0, matches: 0 },
-              });
-              continue;
-            }
-
-            // Count actual completed matches from active tournaments
-            const actualCompleted = await db.match.findMany({
-              where: {
-                status: 'completed',
-                tournament: { status: { in: ['main_event', 'finalization', 'completed'] } },
-                OR: [
-                  { team1Id: { in: playerTeamIds } },
-                  { team2Id: { in: playerTeamIds } },
-                ],
-              },
-              select: {
-                winnerId: true,
-                team1Id: true,
-                team2Id: true,
-              },
-            });
-
             let actualWins = 0;
             let actualMatches = 0;
-            for (const m of actualCompleted) {
-              const isTeam1 = playerTeamIds.includes(m.team1Id ?? '');
-              const isTeam2 = playerTeamIds.includes(m.team2Id ?? '');
-              if (!isTeam1 && !isTeam2) continue;
-              if (!m.team1Id || !m.team2Id) continue; // Skip BYE
-              actualMatches++;
-              if (m.winnerId && playerTeamIds.includes(m.winnerId)) {
-                actualWins++;
+            let currentStreak = 0;
+            let maxStreak = 0;
+
+            if (playerTeamIds.length > 0) {
+              // Count actual completed matches from active tournaments
+              const actualCompleted = await db.match.findMany({
+                where: {
+                  status: 'completed',
+                  tournament: { status: { in: ['main_event', 'finalization', 'completed'] } },
+                  OR: [
+                    { team1Id: { in: playerTeamIds } },
+                    { team2Id: { in: playerTeamIds } },
+                  ],
+                },
+                orderBy: [
+                  { tournament: { createdAt: 'asc' } },
+                  { round: 'asc' },
+                  { matchNumber: 'asc' },
+                ],
+                select: {
+                  winnerId: true,
+                  team1Id: true,
+                  team2Id: true,
+                },
+              });
+
+              for (const m of actualCompleted) {
+                const isTeam1 = playerTeamIds.includes(m.team1Id ?? '');
+                const isTeam2 = playerTeamIds.includes(m.team2Id ?? '');
+                if (!isTeam1 && !isTeam2) continue;
+                if (!m.team1Id || !m.team2Id) continue; // Skip BYE
+                actualMatches++;
+                if (m.winnerId && playerTeamIds.includes(m.winnerId)) {
+                  actualWins++;
+                  currentStreak++;
+                  maxStreak = Math.max(maxStreak, currentStreak);
+                } else {
+                  currentStreak = 0;
+                }
               }
             }
 
             await db.player.update({
               where: { id: playerId },
-              data: { totalWins: actualWins, matches: actualMatches },
+              data: {
+                points: Math.max(0, correctPoints),
+                totalWins: actualWins,
+                matches: actualMatches,
+                streak: currentStreak,
+                maxStreak: maxStreak,
+              },
             });
           }
           console.log(`[Rollback] Recalculated stats for ${affectedPlayerIds.size} players`);
