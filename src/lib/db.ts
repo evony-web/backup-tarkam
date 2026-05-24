@@ -69,7 +69,7 @@ function createPrismaClient(): PrismaClient {
     console.error('[DB] Set DATABASE_URL in .env (local) or Vercel Environment Variables (production)')
   }
 
-  const logLevel = process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']
+  const logLevel = process.env.NODE_ENV === 'development' ? (['warn', 'error'] as const) : (['error'] as const)
 
   if (dbType === 'libsql') {
     // ── Production: Turso libSQL via driver adapter ──
